@@ -6,7 +6,9 @@ from pylitterbot import Account
 username = getpass("Username:")
 password = getpass("Password:")
 
-
+"""
+Modified from https://github.com/natekspencer/pylitterbot
+"""
 async def main():
     account = Account()
 
