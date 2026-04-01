@@ -32,55 +32,58 @@ def find_cat(input_df):
     )
 
 
+def split_avg_over_lookback(input_df, lookback_days, aggregation):
+    """
+    Helper function to handle aggregated time-split detections that are later joined
+    E.g., comparing weights between weeks, visit count between weeks
+    """
+    lookback_days_half = lookback_days // 2
+    current_date = F.current_date()
+
+    first_half_avg = (input_df
+                      .filter(F.col("timestamp").between(F.date_sub(current_date, lookback_days), F.date_sub(current_date, lookback_days_half + 1)))
+                      .transform(find_cat)
+                      .groupBy("cat_name")
+                      .agg(aggregation.alias("past_average"))
+    )
+    second_half_avg = (input_df
+                       .filter(F.col("timestamp").between(F.date_sub(current_date, lookback_days_half), F.date_sub(current_date, 1)))
+                       .transform(find_cat)
+                       .groupBy("cat_name")
+                       .agg(aggregation.alias("current_average"))
+    )
+    
+    return (
+        first_half_avg
+        .join(second_half_avg, on="cat_name", how="outer")
+        .withColumn("difference", F.round(F.col("past_average") - F.col("current_average"), 2))
+    )
+
+
 def weight_trajectory(spark, input_df) -> DataFrame:
     """
     Detects downtrend in cat weight over weight_trajectory_days (minimum should be 14)
     If historical data not available, early_avg_weight, at_risk, & weight_difference will be null
 
     Weight is rounded to the hundredths
-
-    output cols: cat_name, early_avg_weight, recent_avg_weight, at_risk, weight_difference
     """
     weight_trajectory_days = SETTINGS["detections"]["weight_trajectory_days"]
     weight_drop_threshold = SETTINGS["detections"]["weight_drop_threshold"]
-    weight_trajectory_days_half = weight_trajectory_days // 2
-    current_date = F.current_date()
 
-    # calculate average cat weight from each half of the lookback days
-    first_half_avg = (input_df
-                      .filter(F.col("timestamp").between(F.date_sub(current_date, weight_trajectory_days), F.date_sub(current_date, weight_trajectory_days_half + 1)))
-                      .transform(find_cat)
-                      .groupBy("cat_name")
-                      .agg(F.round(F.avg("value"), 2).alias("past_average_weight"))
-    )
-    second_half_avg = (input_df
-                       .filter(F.col("timestamp").between(F.date_sub(current_date, weight_trajectory_days_half), F.date_sub(current_date, 1)))
-                       .transform(find_cat)
-                       .groupBy("cat_name")
-                       .agg(F.round(F.avg("value"), 2).alias("current_average_weight"))
-    )
-    
-    weight_difference = F.round(F.col("past_average_weight") - F.col("current_average_weight"), 2)
-    joined_avg = (first_half_avg
-                  .join(second_half_avg, on="cat_name", how="outer")
-                  .withColumn("weight_difference", weight_difference)
-    )
+    joined_avg = split_avg_over_lookback(input_df, weight_trajectory_days, F.round(F.avg("value"), 2))
 
     detections = []
     # filtering on cats where the weight difference between past and current surpasses the threshold
-    for cat in joined_avg.filter(F.col("weight_difference") > weight_drop_threshold).toPandas().itertuples():
+    for cat in joined_avg.filter(F.col("difference") > weight_drop_threshold).toPandas().itertuples():
         detections.append(
             (date.today(), 
              cat.cat_name, 
              "weight_trajectory_detection", 
              f"early_avg: {cat.past_average_weight}, current_avg: {cat.current_average_weight}, diff: {cat.weight_difference}")
         )
-        
+
     # if no cats with weight under threshold, df will be empty
     return spark.createDataFrame(detections, DETECTION_SCHEMA)
-
-    
-
 
 
 def sudden_usage_spike(spark, input_df) -> DataFrame:
@@ -100,11 +103,28 @@ def night_clustering(spark, input_df) -> DataFrame:
     """
     return 0
 
+
 def upward_usage_trend(spark, input_df) -> DataFrame:
     """
     Detects a gradual increase in usage over defined weeks
     """
-    return 0
+    usage_increase_days = SETTINGS["detections"]["usage_increase_days"]
+    usage_increase_threshold = SETTINGS["detections"]["usage_increase_threshold"]
+
+    joined_avg = split_avg_over_lookback(input_df, usage_increase_days, F.count("*"))
+
+    detections = []
+    # filtering on cats where the average difference between past and current surpasses the threshold
+    for cat in joined_avg.filter(F.col("average_difference") > usage_increase_threshold).toPandas().itertuples():
+        detections.append(
+            (date.today(), 
+             cat.cat_name, 
+             "upward_usage_trend_detection", 
+             f"early_avg: {cat.past_average_visits}, current_avg: {cat.current_average_visits}, diff: {cat.average_difference}")
+        )
+
+    # if no cats with weight under threshold, df will be empty
+    return spark.createDataFrame(detections, DETECTION_SCHEMA)
 
 
 def missed_day(spark, input_df) -> DataFrame:
