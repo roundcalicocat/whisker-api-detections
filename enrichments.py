@@ -1,23 +1,30 @@
-from pyspark.sql import DataFrame
 from pyspark.sql import functions as F
 
-from config import CONFIG
+from config import SETTINGS
 from event_types import PET_WEIGHT_RECORDED
 
 
-def enrich_with_cat_name(df: DataFrame) -> DataFrame:
+def find_cat_name(input_df):
     """
-    Enriches PET_WEIGHT_RECORDED rows with a cat_name column based on
-    weight ranges defined in config.py. Non-weight rows get null, weights
-    outside all known ranges get "Unknown".
-    """
-    cat_expr = F.lit("Unknown")
-    for name, cfg in reversed(CONFIG["cats"].items()):
-        low = cfg["avg_weight"] - cfg["weight_range"]
-        high = cfg["avg_weight"] + cfg["weight_range"]
-        cat_expr = F.when(F.col("value").between(low, high), name).otherwise(cat_expr)
+    Enriches only PET_WEIGHT_RECORDED events with a cat_name column based on
+    weight ranges in config. Events with weights outside of known ranges
+    are given the cat_name "Unknown"
 
-    return df.withColumn(
+    output cols: input_df cols, cat_name
+    """
+    for name, config in reversed(SETTINGS["cats"].items()):
+        # litter robot sensor is inaccurate, need to get +/- range
+        min_weight = config["avg_weight"] - config["weight_range"]
+        max_weight = config["avg_weight"] + config["weight_range"]
+
+    return input_df.withColumn(
         "cat_name",
-        F.when(F.col("event_type") == PET_WEIGHT_RECORDED, cat_expr)
+        F.when(
+            F.col("event_type") == PET_WEIGHT_RECORDED, 
+            F.when(
+                # default to "unknown" if weight can't be associated
+                # a cat stepping in once and immediately exiting can cause this
+                F.col("value").between(min_weight, max_weight), name)
+                .otherwise(F.lit("Unknown")) 
+            )
     )

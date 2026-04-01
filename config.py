@@ -4,7 +4,7 @@ Set cat names, weight (in lbs), and acceptable daily weight deviations (in lbs)
 The LitterRobot weight sensor isn't accurate, so start at at weight_range of 0.5
 """
 
-CONFIG = {
+SETTINGS = {
     "cats": {
         "zahra": {
             "avg_weight": 4.0,      
@@ -17,6 +17,8 @@ CONFIG = {
     },
     "detections": {
         "weight_drop_threshold": 0.5,  # lbs drop between early/recent halves to flag at_risk
-        "weight_trajectory_days": 14   # full window; split into two halves to detect gradual drift
+        "weight_trajectory_days": 14,  # full window; split into two halves to detect gradual drift
+        "spike_window_hours": 2,       # rolling window to count visits for spike detection
+        "spike_visit_threshold": 3     # visits within window to flag as spike
     },
 }

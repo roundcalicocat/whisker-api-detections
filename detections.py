@@ -1,39 +1,75 @@
 from pyspark.sql import SparkSession, DataFrame
 from pyspark.sql import functions as F
+from pyspark.sql.window import Window
 
 from event_types import PET_WEIGHT_RECORDED
 from enrichments import enrich_with_cat_name
-from config import CONFIG
+from config import SETTINGS
 
 
-def _get_historical_baseline() -> DataFrame:
-    return 0
-
-def _avg_weight_by_cat(input_df, time_filter, col_name) -> DataFrame:
+def find_cat(input_df):
+    """
+    Helper function to filter PET_WEIGHT_RECORDED events, enrich with cat name,
+    and exclude "Unknown" cats
+    """
     return (
-        input_df.filter(time_filter & (F.col("event_type") == PET_WEIGHT_RECORDED))
+        input_df.filter(F.col("event_type") == PET_WEIGHT_RECORDED)
         .transform(enrich_with_cat_name)
-        .groupBy("cat_name")
-        .agg(F.round(F.avg("value"), 2).alias(col_name))
+        .filter(F.col("cat_name") != "Unknown")
     )
 
 
 def weight_trajectory(input_df) -> DataFrame:
-    window_days = CONFIG["detections"]["weight_trajectory_days"]
-    threshold = CONFIG["detections"]["weight_drop_threshold"]
+    """
+    Detects downtrend in cat weight over weight_trajectory_days (minimum should be 14)
+    If historical data not available, early_avg_weight, at_risk, & weight_difference will be null
+
+    output cols: cat_name, early_avg_weight, recent_avg_weight, at_risk, weight_difference
+    """
+    window_days = SETTINGS["detections"]["weight_trajectory_days"]
+    threshold = SETTINGS["detections"]["weight_drop_threshold"]
     half = window_days // 2
 
-    today = F.current_date()
-    early = _avg_weight_by_cat(input_df, F.col("timestamp").between(F.date_sub(today, window_days), F.date_sub(today, half + 1)), "early_avg_weight")
-    recent = _avg_weight_by_cat(input_df, F.col("timestamp").between(F.date_sub(today, half), F.date_sub(today, 1)), "recent_avg_weight")
 
-    diff = F.round(F.col("recent_avg_weight") - F.col("early_avg_weight"), 2)
+def sudden_usage_spike(input_df) -> DataFrame:
+    """
+    Detects sudden spike in usage over a certain period, defined in SETTINGS config
+    This period should be over a few limited hours for best results
+
+    """
+    spike_window_hours = SETTINGS["detections"]["spike_window_hours"]
+    spike_visit_threshold = SETTINGS["detections"]["spike_visit_threshold"]
+    window_seconds = spike_window_hours * 3600
+
+
+def night_clustering(input_df) -> DataFrame:
+    return 0
+
+def upward_usage_trend(input_df) -> DataFrame:
+    return 0
+
+def visit_freq_variance(input_df) -> DataFrame:
+    return 0
+
+def missed_day(input_df) -> DataFrame:
+    """
+    Detects if a cat wasn't seen during the day. This should be run in the PM,
+    as to avoid false positives from running in the AM
+
+
+    """
+    # find all named cats from conf
+    cats = []
+    for cat in SETTINGS["cats"]:
+        cats.append(cat)
+
+    current_cats_seen = (input_df
+                         .transform(find_cat)
+                         .select("cat_name").distinct()
+                         .filter("timestamp >= current_date()"))
 
     return (
-        early.join(recent, on="cat_name", how="outer")
-        .withColumn("at_risk", (F.col("early_avg_weight") - F.col("recent_avg_weight")) > threshold)
-        .withColumn("weight_difference", F.when(diff < 0, diff).otherwise(F.concat(F.lit("+"), diff.cast("string"))))
+        
+
     )
 
-def high_usage_detection(input_df, lookback_days=7) -> DataFrame:
-    return 0
