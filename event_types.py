@@ -1,5 +1,10 @@
 from pylitterbot.enums import LitterBoxStatus
 
+"""
+Litter Robot API Events, from https://github.com/natekspencer/pylitterbot/blob/main/pylitterbot/enums.py
+
+"""
+
 BONNET_REMOVED = "Bonnet Removed"
 CAT_DETECTED = "Cat Detected"
 CAT_SENSOR_FAULT = "Cat Sensor Fault"
@@ -57,3 +62,4 @@ STATUS_TO_EVENT = {
     LitterBoxStatus.STARTUP_PINCH_DETECT: STARTUP_PINCH_DETECT,
     LitterBoxStatus.UNKNOWN: UNKNOWN,
 }
+
