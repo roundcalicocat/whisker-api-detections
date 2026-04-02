@@ -40,7 +40,7 @@ def correlate_to_cat(input_df):
 
 def weight_downtrend_detection(spark, input_df) -> DataFrame:
     """
-    Detects downtrend in cat weight over weight_trajectory_days (minimum should be 14)
+    Detects downtrend in cat weight over lookback_days (minimum should be 14)
     If historical data not available, early_avg_weight, at_risk, & weight_difference will be null
     Filtering out extreme readings, like a cat suddenly dropping a pound between readings,
     to prevent messing with the average.
@@ -49,14 +49,14 @@ def weight_downtrend_detection(spark, input_df) -> DataFrame:
 
     Weight is rounded to the hundredths
     """
-    weight_trajectory_days = SETTINGS["detections"]["weight_trajectory_days"]
+    lookback_days = SETTINGS["detections"]["lookback_days"]
     weight_drop_threshold = SETTINGS["detections"]["weight_drop_threshold"]
     weight_stddev_multiplier = SETTINGS["detections"]["weight_stddev_multiplier"]
-    weight_trajectory_days_half = weight_trajectory_days // 2
+    lookback_days_half = lookback_days // 2
     current_date = F.current_date()
 
     add_stats_df = (input_df
-                    .filter(F.col("timestamp").between(F.date_sub(current_date, weight_trajectory_days), current_date))
+                    .filter(F.col("timestamp").between(F.date_sub(current_date, lookback_days), current_date))
                     .transform(correlate_to_cat)
                     .groupBy("cat_name")
                     .agg(F.avg("value").alias("mean"), F.stddev("value").alias("stddev"))
@@ -70,13 +70,13 @@ def weight_downtrend_detection(spark, input_df) -> DataFrame:
     )
 
     first_half = (filtered_extremes
-        .filter(F.col("timestamp").between(F.date_sub(current_date, weight_trajectory_days), F.date_sub(current_date, weight_trajectory_days_half + 1)))
+        .filter(F.col("timestamp").between(F.date_sub(current_date, lookback_days), F.date_sub(current_date, lookback_days_half + 1)))
         .transform(correlate_to_cat)
         .groupBy("cat_name")
         .agg(F.round(F.avg("value"), 2).alias("past_average"))
     )
     second_half = (filtered_extremes
-        .filter(F.col("timestamp").between(F.date_sub(current_date, weight_trajectory_days_half), F.date_sub(current_date, 1)))
+        .filter(F.col("timestamp").between(F.date_sub(current_date, lookback_days_half), F.date_sub(current_date, 1)))
         .transform(correlate_to_cat)
         .groupBy("cat_name")
         .agg(F.round(F.avg("value"), 2).alias("current_average"))
@@ -137,15 +137,15 @@ def upward_usage_trend_detection(spark, input_df) -> DataFrame:
     so looking for the nice slope linear regression produces rather
     than averaging a bunch, which can lead to false negatives
     """
-    usage_increase_days = SETTINGS["detections"]["usage_increase_days"]
+    lookback_days = SETTINGS["detections"]["lookback_days"]
     usage_increase_threshold = SETTINGS["detections"]["usage_increase_threshold"]
     current_date = F.current_date()
 
     daily_visits = (input_df
-        .filter(F.col("timestamp").between(F.date_sub(current_date, usage_increase_days), current_date))
+        .filter(F.col("timestamp").between(F.date_sub(current_date, lookback_days), current_date))
         .transform(correlate_to_cat)
         .withColumn("date", F.to_date(F.col("timestamp")))
-        .withColumn("day_index", F.datediff(F.col("date"), F.date_sub(current_date, usage_increase_days)))
+        .withColumn("day_index", F.datediff(F.col("date"), F.date_sub(current_date, lookback_days)))
         .groupBy("cat_name", "date", "day_index")
         .agg(F.count("*").alias("daily_count"))
     )
