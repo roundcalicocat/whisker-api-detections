@@ -22,6 +22,6 @@ SETTINGS = {
         "spike_window_hours": 2,       # rolling window to count visits for spike detection
         "spike_visit_threshold": 3,    # visits within window to flag as spike
         "usage_increase_days": 14,     # full window; split into two halves to detect gradual increase
-        "usage_increase_threshold": 3  # visit count increase between weeks
+        "daily_usage_threshold": 4     # typical daily usage count
     },
 }

@@ -110,38 +110,44 @@ def sudden_usage_spike_detection(spark, input_df) -> DataFrame:
 
 def upward_usage_trend_detection(spark, input_df) -> DataFrame:
     """
-    Detects a gradual increase in usage over defined weeks
+    Detects a gradual increase in usage using linear regression
+    Even in healthy cats, some varience is expected (e.g, 2-4 visits a day),
+    so looking for the nice slope linear regression produces rather
+    than averaging a bunch, which can lead to false negatives
     """
     usage_increase_days = SETTINGS["detections"]["usage_increase_days"]
     usage_increase_threshold = SETTINGS["detections"]["usage_increase_threshold"]
 
-    usage_increase_days_half = usage_increase_days // 2
-    current_date = F.current_date()
+    daily_visits = (input_df
+        .filter(F.col("timestamp").between(F.date_sub(F.current_date(), usage_increase_days), F.current_date()))
+        .transform(correlate_to_cat)
+        .withColumn("date", F.to_date(F.col("timestamp")))
+        .withColumn("day_index", F.datediff(F.col("date"), F.date_sub(F.current_date(), usage_increase_days)))
+        .groupBy("cat_name", "date", "day_index")
+        .agg(F.count("*").alias("daily_count"))
+    )
 
-    past_half = (input_df
-        .filter(F.col("timestamp").between(F.date_sub(current_date, usage_increase_days), F.date_sub(current_date, usage_increase_days_half + 1)))
-        .transform(correlate_to_cat)
+    # linear regression ref: slope = (n * sum(xy) - sum(x) * sum(y) / (n * (sum(x^2)) - (sum(x)^2))))
+    slopes_by_cat = (daily_visits
         .groupBy("cat_name")
-        .agg(F.count("*").alias("past_average"))
+        .agg(
+            F.count("*").alias("n"),
+            F.sum(F.col("day_index")).alias("sum_x"),
+            F.sum(F.col("daily_count")).alias("sum_y"),
+            F.sum(F.col("day_index") * F.col("daily_count")).alias("sum_xy"),
+            F.sum(F.col("day_index") * F.col("day_index")).alias("sum_x^2")
+        )
+        .withColumn("slope", (F.col("n") * F.col("sum_xy") - F.col("sum_x") * F.col("sum_y")) / (F.col("n") * F.col("sum_x^2") - F.col("sum_x") * F.col("sum_x")))
     )
-    current_half = (input_df
-        .filter(F.col("timestamp").between(F.date_sub(current_date, usage_increase_days_half), F.date_sub(current_date, 1)))
-        .transform(correlate_to_cat)
-        .groupBy("cat_name")
-        .agg(F.count("*").alias("current_average"))
-    )
-    joined_avg = (past_half
-        .join(current_half, on="cat_name", how="outer")
-        .withColumn("difference", F.round(F.col("past_average") - F.col("current_average"), 2))
-    )
+
 
     detections = []
-    for cat in joined_avg.filter(F.col("difference") < -usage_increase_threshold).toPandas().itertuples():
+    for cat in slopes_by_cat.filter(F.col("slope") > usage_increase_threshold).toPandas().itertuples():
         detections.append(
             (date.today(),
              cat.cat_name,
              "upward_usage_trend_detection",
-             f"early_avg: {cat.past_average}, current_avg: {cat.current_average}, diff: {cat.difference}")
+             f"slope: {cat.slope}")
         )
 
     # if no cats above usage threshold, df will be empty
