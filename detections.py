@@ -1,6 +1,5 @@
 from pyspark.sql import  DataFrame
 from pyspark.sql import functions as F
-from pyspark.sql.window import Window
 from pyspark.sql.types import StructType, StructField, StringType, DateType
 from datetime import date
 
@@ -50,7 +49,7 @@ def weight_downtrend_detection(spark, input_df) -> DataFrame:
     current_date = F.current_date()
 
     add_stats_df = (input_df
-                    .filter(F.col("timestamp").between(F.date_sub(current_date, weight_trajectory_days)))
+                    .filter(F.col("timestamp").between(F.date_sub(current_date, weight_trajectory_days), current_date))
                     .transform(correlate_to_cat)
                     .groupBy("cat_name")
                     .agg(F.avg("value").alias("mean"), F.stddev("value").alias("stddev"))
@@ -95,34 +94,51 @@ def weight_downtrend_detection(spark, input_df) -> DataFrame:
 
 def sudden_usage_spike_detection(spark, input_df) -> DataFrame:
     """
-    Detects sudden spike (spike_visit_threshold) in usage over spike_window_hours, 
+    Detects sudden spike (spike_visit_threshold) in usage over spike_window, 
     This period should be over a few limited hours for best results
 
     """
-    spike_window_hours = SETTINGS["detections"]["spike_window_hours"]
+    spike_window = SETTINGS["detections"]["spike_window"]
     spike_visit_threshold = SETTINGS["detections"]["spike_visit_threshold"]
-    window_seconds = spike_window_hours * 3600
+    current_date = F.current_date()
 
-    windowed_usage = []
+    windowed_usage = (input_df
+                      .filter(F.col("timestamp") >= current_date)
+                      .transform(correlate_to_cat)
+                      .groupBy("cat_name", F.window(F.col("timestamp"), spike_window))
+                      .agg(F.count("*").alias("activity_count"))
+    )
 
-    
+    detections = []
+    for cat in windowed_usage.filter(F.col("activity_count") > spike_visit_threshold).toPandas().itertuples():
+        detections.append(
+            (date.today(),
+             cat.cat_name,
+             "sudden_usage_spike_detection",
+             f"activity over {spike_window}: {cat.activity_count}")
+        )
+
+    # if no cats above usage threshold, df will be empty
+    return spark.createDataFrame(detections, DETECTION_SCHEMA)
 
 
 def upward_usage_trend_detection(spark, input_df) -> DataFrame:
     """
     Detects a gradual increase in usage using linear regression
+
     Even in healthy cats, some varience is expected (e.g, 2-4 visits a day),
     so looking for the nice slope linear regression produces rather
     than averaging a bunch, which can lead to false negatives
     """
     usage_increase_days = SETTINGS["detections"]["usage_increase_days"]
     usage_increase_threshold = SETTINGS["detections"]["usage_increase_threshold"]
+    current_date = F.current_date()
 
     daily_visits = (input_df
-        .filter(F.col("timestamp").between(F.date_sub(F.current_date(), usage_increase_days), F.current_date()))
+        .filter(F.col("timestamp").between(F.date_sub(current_date, usage_increase_days), current_date))
         .transform(correlate_to_cat)
         .withColumn("date", F.to_date(F.col("timestamp")))
-        .withColumn("day_index", F.datediff(F.col("date"), F.date_sub(F.current_date(), usage_increase_days)))
+        .withColumn("day_index", F.datediff(F.col("date"), F.date_sub(current_date, usage_increase_days)))
         .groupBy("cat_name", "date", "day_index")
         .agg(F.count("*").alias("daily_count"))
     )

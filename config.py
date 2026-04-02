@@ -19,7 +19,7 @@ SETTINGS = {
         "weight_drop_threshold": 0.5,  # lbs drop between early/recent halves to flag at_risk
         "weight_trajectory_days": 14,  # full window; split into two halves to detect gradual drift
         "weight_stddev_multiplier": 2, # standard dev multiplier, how many deviations to trigger
-        "spike_window_hours": 2,       # rolling window to count visits for spike detection
+        "spike_window": "2 hours",     # rolling window to count visits for spike detection, can be measured in minutes or hours
         "spike_visit_threshold": 3,    # visits within window to flag as spike
         "usage_increase_days": 14,     # full window; split into two halves to detect gradual increase
         "daily_usage_threshold": 4     # typical daily usage count
