@@ -24,4 +24,8 @@ SETTINGS = {
         "usage_increase_days": 14,     # full window; split into two halves to detect gradual increase
         "daily_usage_threshold": 4     # typical daily usage count
     },
+    "email": {
+        "sender": "",
+        "recipient": ""
+    }
 }

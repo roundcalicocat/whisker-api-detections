@@ -5,7 +5,6 @@ from datetime import date
 
 
 from event_types import PET_WEIGHT_RECORDED
-from enrichments import enrich_with_cat_name
 from config import SETTINGS
 
 
@@ -24,9 +23,17 @@ def correlate_to_cat(input_df):
     Helper function to filter PET_WEIGHT_RECORDED events, enrich with cat name,
     and exclude "Unknown" cats
     """
-    return (
-        input_df.filter(F.col("event_type") == PET_WEIGHT_RECORDED)
-        .transform(enrich_with_cat_name)
+    default_cat_name = F.lit("Unknown")
+    for name, config in SETTINGS["cats"].items():
+        min_weight = config["avg_weight"] - config["weight_range"]
+        max_weight = config["avg_weight"] + config["weight_range"]
+        default_cat_name = (F.when(
+            F.col("value").between(min_weight, max_weight), name)
+            .otherwise(default_cat_name)
+        )
+    return (input_df
+        .filter(F.col("event_type") == PET_WEIGHT_RECORDED)
+        .withColumn("cat_name", default_cat_name)
         .filter(F.col("cat_name") != "Unknown")
     )
 
