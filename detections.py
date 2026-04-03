@@ -171,7 +171,7 @@ def upward_usage_trend_detection(spark, input_df) -> DataFrame:
             (date.today(),
              cat.cat_name,
              "upward_usage_trend_detection",
-             f"{cat.cat_name} exceeded the usage increase threshold {usage_increase_threshold} over the past {lookback_days} days")
+             f"{cat.cat_name} has been using the litter box more over the past {lookback_days} days")
         )
 
     # if no cats above usage threshold, df will be empty
@@ -223,7 +223,7 @@ def visit_duration_anomaly_detection(spark, input_df) -> DataFrame:
                          .filter(F.col("timestamp") >= F.date_sub(F.current_date(), lookback_days))
                          .withColumn("session_id", F.sum(
                              (F.col("event_type") == CAT_DETECTED).cast("int")
-                         ).over(Window.orderBy("timestamp"))
+                         ).over(Window.orderBy("timestamp")) # no partition, we die like WARN WindowExec
                          )
                          .groupBy("session_id")
                          .agg(
