@@ -1,10 +1,10 @@
-from pyspark.sql import  DataFrame
+from pyspark.sql import  DataFrame, Window
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StructField, StringType, DateType
 from datetime import date
 
 
-from event_types import PET_WEIGHT_RECORDED
+from event_types import PET_WEIGHT_RECORDED, CAT_DETECTED, CLEAN_CYCLE_COMPLETE
 from config import SETTINGS
 
 
@@ -18,10 +18,11 @@ DETECTION_SCHEMA = StructType([
 ])
 
 
-def correlate_to_cat(input_df):
+def correlate_to_cat(input_df, weight_event_filter=True) -> DataFrame:
     """
-    Helper function to filter PET_WEIGHT_RECORDED events, enrich with cat name,
-    and exclude "Unknown" cats
+    Helper function to enrich with cat name and exclude "Unknown" cats.
+    Filters to PET_WEIGHT_RECORDED events by default; pass weight_event_filter=False
+    when the df is already aggregated and has no event_type column.
     """
     default_cat_name = F.lit("Unknown")
     for name, config in SETTINGS["cats"].items():
@@ -31,8 +32,8 @@ def correlate_to_cat(input_df):
             F.col("value").between(min_weight, max_weight), name)
             .otherwise(default_cat_name)
         )
-    return (input_df
-        .filter(F.col("event_type") == PET_WEIGHT_RECORDED)
+    df = input_df.filter(F.col("event_type") == PET_WEIGHT_RECORDED) if weight_event_filter else input_df
+    return (df
         .withColumn("cat_name", default_cat_name)
         .filter(F.col("cat_name") != "Unknown")
     )
@@ -200,6 +201,72 @@ def missed_day_detection(spark, input_df) -> DataFrame:
              cat, 
              "missed_day_detection", 
              "")
+        )
+
+    # if no cats missing, df will be empty
+    return spark.createDataFrame(detections, DETECTION_SCHEMA)
+
+
+def visit_duration_anomaly_detection(spark, input_df) -> DataFrame:
+    """
+    Detects whether there's an anomalous visit (too long/short)
+    The log events don't provide a set event for a cat leaving the box, only 
+    cat in -> cleaning cycle finished. Attempting to identify sessions by subtracting
+    the time difference between the full cat in -> cleaning cycle from the cleaning
+    cycle delay (set in the app)
+    """
+    cycle_delay_seconds = SETTINGS["litter_robot"]["cycle_delay"] * 60
+    lookback_days = SETTINGS["detections"]["lookback_days"]
+    duration_stddev_multiplier = SETTINGS["detections"]["duration_stddev_multiplier"]
+
+    windowed_sessions = (input_df
+                         .filter(F.col("timestamp") >= F.date_sub(F.current_date(), lookback_days))
+                         .withColumn("session_id", F.sum(
+                             (F.col("event_type") == CAT_DETECTED).cast("int")
+                         ).over(Window.orderBy("timestamp"))
+                         )
+                         .groupBy("session_id")
+                         .agg(
+                             F.min(F.when(F.col("event_type") == CAT_DETECTED, F.col("timestamp"))).alias("start_time"),
+                             F.max(F.when(F.col("event_type") == CLEAN_CYCLE_COMPLETE, F.col("timestamp"))).alias("end_time"),
+                             F.first(F.when(F.col("event_type") == PET_WEIGHT_RECORDED, F.col("value"))).alias("value")
+                         )
+                         .filter(F.col("start_time").isNotNull() & F.col("end_time").isNotNull())
+    )
+
+    cat_sessions = (windowed_sessions
+                    .transform(correlate_to_cat, weight_event_filter=False)
+                    .groupBy("session_id")
+                    .agg(F.first("cat_name").alias("cat_name"))
+    )
+
+    all_cat_sessions = (windowed_sessions
+        .join(cat_sessions, on="session_id", how="inner")
+        .withColumn("session_duration", (F.unix_timestamp("end_time") - F.unix_timestamp("start_time") - cycle_delay_seconds))
+    )
+
+    cat_baseline = (all_cat_sessions
+        .filter(F.col("start_time") < F.current_date())
+        .groupBy("cat_name")
+        .agg(
+            F.avg("session_duration").alias("average_duration"),
+            F.stddev("session_duration").alias("stddev_duration")
+        )
+    )
+
+    anomalous_sessions = (all_cat_sessions
+        .filter(F.col("start_time") >= F.current_date())
+        .join(cat_baseline, on="cat_name")
+        .withColumn("z_score", (F.abs(F.col("session_duration") - F.col("average_duration")) / F.col("stddev_duration")))
+    )
+
+    detections = []
+    for cat in anomalous_sessions.filter(F.col("z_score") > duration_stddev_multiplier).toPandas().itertuples():
+        detections.append(
+            (date.today(), 
+             cat.cat_name, 
+             "visit_duration_anomaly_detection", 
+             f"duration: {cat.session_duration}")
         )
 
     # if no cats missing, df will be empty

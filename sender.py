@@ -24,4 +24,4 @@ def send_email(subject, body, sender, recipients, password):
     print("Message sent!")
 
 
-send_email(subject, body, sender, recipients, password)
+send_email(subject, body, sender, recipient, password)

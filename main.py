@@ -9,16 +9,21 @@ from pyspark.sql import SparkSession
 from pylitterbot import Account
 
 from parse_logs import parse_events
-from detections import high_usage_detection, weight_trajectory
+from detections import (weight_downtrend_detection, sudden_usage_spike_detection, 
+    upward_usage_trend_detection, missed_day_detection, visit_duration_anomaly_detection)
 
 CACHE_FILE = Path("raw_events.pkl")
 
 spark = SparkSession.builder.appName("whisker-api-detections").getOrCreate()
 
-"""
-Modified from https://github.com/natekspencer/pylitterbot
-"""
 async def fetch_events(historical_log_count=1000000):
+    """
+    Fetch past 7 days of events from each litter robot on account
+    Note: historical_log_count default made on assumption cats don't use
+    the bathroom 1M+ times a week, to get max # of logs
+    
+    Modified from https://github.com/natekspencer/pylitterbot
+    """
     username = getpass("Username:")
     password = getpass("Password:")
 
@@ -39,6 +44,13 @@ async def fetch_events(historical_log_count=1000000):
 
 
 async def main(refresh=False):
+    """
+    Main functionality:
+        - Fetch past 7 days of litter robot(s) data (required on first run, optional on rerun)
+            - Recommended to refresh at least weekly
+        - Parse Activity objects to create event log dataframe
+        - Detection time
+    """
     if refresh or not CACHE_FILE.exists():
         fetched = await fetch_events()
 
@@ -55,11 +67,12 @@ async def main(refresh=False):
         raw_events = pickle.loads(CACHE_FILE.read_bytes())
 
     events_df = parse_events(raw_events, spark)
-    weight_trajectory(events_df).show()
+    visit_duration_anomaly_detection(events_df).show()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    # it's annoying to log in everytime to run this thing
     parser.add_argument("--refresh", action="store_true", help="Fetch new events and append to cache")
     args = parser.parse_args()
 

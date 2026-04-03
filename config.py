@@ -16,7 +16,7 @@ SETTINGS = {
         }
     },
     "litter_robot": {
-        "cycle_delay" : 8              # cycle delay in minutes, from configuration in whisker app
+        "cycle_delay" : "8 minutes"    # cycle delay in minutes, from configuration in whisker app
     },
     "detections": {
         "lookback_days": 14,           # shared lookback window across detections
