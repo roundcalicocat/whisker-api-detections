@@ -16,10 +16,10 @@ SETTINGS = {
         }
     },
     "litter_robot": {
-        "cycle_delay" : "8 minutes"    # cycle delay in minutes, from configuration in whisker app
+        "cycle_delay" : 8              # cycle delay in minutes, from configuration in whisker app
     },
     "detections": {
-        "lookback_days": 14,           # shared lookback window across detections
+        "lookback_days": 6,           # shared lookback window across detections
         "weight_drop_threshold": 0.5,  # lbs drop between early/recent halves to flag at_risk
         "weight_stddev_multiplier": 2, # stddev multiplier for weight outlier exclusion
         "spike_window": "2 hours",     # rolling window to count visits for spike detection, can be measured in minutes or hours

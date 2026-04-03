@@ -1,0 +1,4 @@
+# java 17 or 21 required for pyspark
+pyspark
+pylitterbot
+pandas
