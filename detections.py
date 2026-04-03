@@ -198,7 +198,7 @@ def missed_day_detection(spark, input_df) -> DataFrame:
     for cat in [x for x in all_cats if x not in current_cats_seen]:
         detections.append(
             (date.today(), 
-             cat.cat_name, 
+             cat, 
              "missed_day_detection", 
              f"{cat.cat_name} was not seen using the litter box today")
         )
