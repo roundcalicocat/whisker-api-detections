@@ -93,7 +93,7 @@ def weight_downtrend_detection(spark, input_df) -> DataFrame:
             (date.today(),
              cat.cat_name,
              "weight_trajectory_detection",
-             f"early_avg: {cat.past_average}, current_avg: {cat.current_average}, diff: {cat.difference}")
+             f"{cat.cat_name} weight changed by {cat.difference}, from {cat.past_average} to {cat.current_average}")
         )
 
     # if no cats above weight threshold, df will be empty
@@ -123,7 +123,7 @@ def sudden_usage_spike_detection(spark, input_df) -> DataFrame:
             (date.today(),
              cat.cat_name,
              "sudden_usage_spike_detection",
-             f"activity over {spike_window}: {cat.activity_count}")
+             f"over {spike_window}, {cat.cat_name} used the litter box {cat.activity_count} times")
         )
 
     # if no cats above usage threshold, df will be empty
@@ -171,7 +171,7 @@ def upward_usage_trend_detection(spark, input_df) -> DataFrame:
             (date.today(),
              cat.cat_name,
              "upward_usage_trend_detection",
-             f"slope: {cat.slope}")
+             f"{cat.cat_name} exceeded the usage increase threshold {usage_increase_threshold} over the past {lookback_days} days")
         )
 
     # if no cats above usage threshold, df will be empty
@@ -198,9 +198,9 @@ def missed_day_detection(spark, input_df) -> DataFrame:
     for cat in [x for x in all_cats if x not in current_cats_seen]:
         detections.append(
             (date.today(), 
-             cat, 
+             cat.cat_name, 
              "missed_day_detection", 
-             "")
+             f"{cat.cat_name} was not seen using the litter box today")
         )
 
     # if no cats missing, df will be empty
@@ -266,7 +266,7 @@ def visit_duration_anomaly_detection(spark, input_df) -> DataFrame:
             (date.today(), 
              cat.cat_name, 
              "visit_duration_anomaly_detection", 
-             f"duration: {cat.session_duration}")
+             f"{cat.cat_name} was in the litter box for an anomalous duration of {cat.session_duration} seconds")
         )
 
     # if no cats missing, df will be empty
